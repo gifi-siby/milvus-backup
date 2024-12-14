@@ -341,7 +341,7 @@ func (mcm *AzureChunkManager) ListWithPrefix(ctx context.Context, bucketName str
 				if strings.HasPrefix(keyWithoutPrefix, "/") {
 					key = prefix + "/" + strings.Split(keyWithoutPrefix, "/")[1] + "/"
 				} else {
-					key = prefix + strings.Split(keyWithoutPrefix, "/")[0] + "/" //GIFI Doubt
+					key = prefix + strings.Split(keyWithoutPrefix, "/")[0] + "/"
 				}
 				if _, exist := objectsKeysDict[key]; !exist {
 					objectsKeys = append(objectsKeys, key)
