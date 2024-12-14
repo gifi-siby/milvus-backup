@@ -595,8 +595,6 @@ func (b *BackupContext) executeRestoreCollectionTask(ctx context.Context, backup
 					tempFileKey := path.Join(tempDir, strings.Replace(file, b.params.MinioCfg.BackupRootPath, "", 1)) + SEPERATOR
 					log.Debug("Copy temporary restore file", zap.String("from", file), zap.String("to", tempFileKey))
 					err := retry.Do(ctx, func() error {
-						//log.Debug("GIFI copyAndBulkInsert", zap.String("backupBucketName", backupBucketName), zap.String("b.milvusBucketName", b.milvusBucketName))
-						//log.Debug("GIFI copyAndBulkInsert", zap.String("tempFileKey", tempFileKey))
 						return b.getRestoreCopier().Copy(ctx, file, tempFileKey, backupBucketName, b.milvusBucketName)
 					}, retry.Sleep(2*time.Second), retry.Attempts(5))
 					if err != nil {
@@ -608,7 +606,6 @@ func (b *BackupContext) executeRestoreCollectionTask(ctx context.Context, backup
 			}
 		} else {
 			realFiles = files
-			log.Debug("GIFI inside copyAndBulkInsert", zap.Any("realFiles", realFiles))
 		}
 
 		err := b.executeBulkInsert(ctx, dbName, collectionName, partitionName, realFiles, int64(task.GetCollBackup().BackupTimestamp), isL0, skipDiskQuotaCheck)
@@ -664,7 +661,6 @@ func (b *BackupContext) executeRestoreCollectionTask(ctx context.Context, backup
 			return !segment.IsL0
 		})
 		groupIds := collectGroupIdsFromSegments(notl0Segments)
-		log.Debug("GIFI collectGroupIdsFromSegments", zap.Any("groupIds", groupIds))
 		if len(groupIds) == 1 && groupIds[0] == 0 {
 			// backward compatible old backup without group id
 			files, size, err := b.getBackupPartitionPaths(ctx, backupBucketName, backupPath, partitionBackup)
@@ -691,9 +687,6 @@ func (b *BackupContext) executeRestoreCollectionTask(ctx context.Context, backup
 
 		for _, value := range restoreFileGroups {
 			group := value
-			log.Debug("GIFI restoreFileGroups loop", zap.Any("group.files", group.files))
-			// group.files[0] += "453580537997766901/0/453580537997566904"
-			//group.files[0] = "gs://gcs-nv1/nativemill/BackupMilvus864/flavorBacks15/binlogs/insert_log/453580537997566884/453580537997566885/453580537997766901/"
 			job := func(ctx context.Context) error {
 				err := copyAndBulkInsert(targetDBName, targetCollectionName, partitionBackup.GetPartitionName(), group.files, false, task.GetSkipDiskQuotaCheck())
 				if err != nil {
@@ -778,19 +771,13 @@ func (b *BackupContext) executeBulkInsert(ctx context.Context, db, coll string, 
 		zap.Int64("endTime", endTime))
 	var taskId int64
 	var err error
-	log.Debug("GIFI executeBulkInsert", zap.Any("files", files))
 	if endTime == 0 {
-		log.Info("endTime == 0")
 		if isL0 {
-			log.Info("isL0 true")
-
 			taskId, err = b.getMilvusClient().BulkInsert(ctx, db, coll, partition, files, gomilvus.IsL0(isL0), gomilvus.SkipDiskQuotaCheck(skipDiskQuotaCheck))
 		} else {
-			log.Info("isL0 false", zap.String("db", db), zap.String("coll", coll), zap.String("partition", partition), zap.Any("files", files))
 			taskId, err = b.getMilvusClient().BulkInsert(ctx, db, coll, partition, files, gomilvus.IsBackup(), gomilvus.SkipDiskQuotaCheck(skipDiskQuotaCheck))
 		}
 	} else {
-		log.Info("endTime not 0")
 		if isL0 {
 			taskId, err = b.getMilvusClient().BulkInsert(ctx, db, coll, partition, files, gomilvus.IsL0(isL0), gomilvus.SkipDiskQuotaCheck(skipDiskQuotaCheck), gomilvus.WithEndTs(endTime))
 		} else {
@@ -906,7 +893,6 @@ func (b *BackupContext) getBackupPartitionPathsWithGroupID(ctx context.Context, 
 	}
 	if !exist {
 		return []string{insertPath, ""}, totalSize, nil
-		// return []string{insertPath}, totalSize, nil //GIFI doubted
 	}
 
 	return []string{insertPath, deltaPath}, totalSize, nil

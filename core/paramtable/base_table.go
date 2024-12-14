@@ -542,12 +542,12 @@ func (gp *BaseTable) loadMilvusConfig() {
 	if milvusPassword != "" {
 		_ = gp.Save("milvus.password", milvusPassword)
 	}
-	// GIFI added
+
 	milvusTLSCertPath := os.Getenv("MILVUS_TLS_CERTPATH")
 	if milvusTLSCertPath != "" {
 		_ = gp.Save("milvus.tlsCertPath", milvusTLSCertPath)
 	}
-	// GIFI added
+
 	milvusServerName := os.Getenv("MILVUS_SERVER_NAME")
 	if milvusServerName != "" {
 		_ = gp.Save("milvus.serverName", milvusServerName)

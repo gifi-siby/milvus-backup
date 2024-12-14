@@ -70,11 +70,8 @@ var _ ChunkManager = (*AzureChunkManager)(nil)
 func NewAzureChunkManager(ctx context.Context, config *StorageConfig) (*AzureChunkManager, error) {
 	aos, err := newAzureObjectStorageWithConfig(ctx, config)
 	if err != nil {
-		// log.Debug("GIFI NewAzureChunkManager err")
 		return nil, err
-	} //else {
-	//log.Debug("GIFI NewAzureChunkManager no err")
-	//}
+	}
 
 	//cli, err := NewAzureClient(ctx, c)
 	//if err != nil {

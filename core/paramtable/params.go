@@ -160,7 +160,6 @@ func (p *MilvusConfig) initPassword() {
 	p.Password = password
 }
 
-// GIFI added
 func (p *MilvusConfig) initTLSCertPath() {
 	tlsCertPath, err := p.Base.Load("milvus.tlsCertPath")
 	if err != nil {
@@ -169,7 +168,6 @@ func (p *MilvusConfig) initTLSCertPath() {
 	p.TLSCertPath = tlsCertPath
 }
 
-// GIFI added
 func (p *MilvusConfig) initServerName() {
 	serverName, err := p.Base.Load("milvus.serverName")
 	if err != nil {
@@ -320,7 +318,7 @@ func (p *MinioConfig) initBucketName() {
 
 func (p *MinioConfig) initRootPath() {
 	rootPath := p.Base.LoadWithDefault("minio.rootPath", DefaultMinioRootPath)
-	p.RootPath = strings.TrimLeft(rootPath, "/") //GIFI modified
+	p.RootPath = strings.TrimLeft(rootPath, "/")
 }
 
 func (p *MinioConfig) initUseIAM() {

@@ -52,21 +52,18 @@ func (gcm *GCPNativeChunkManager) Config() *StorageConfig {
 func newGCPNativeChunkManagerWithConfig(ctx context.Context, config *StorageConfig) (*GCPNativeChunkManager, error) {
 	var client *storage.Client
 	var err error
-	// log.Debug("GIFI Inside newGCPNativeChunkManagerWithConfig", zap.String("config.GcpCredentialJSON", config.GcpCredentialJSON))
 	var opts []option.ClientOption
 	var projectId string
 	if config.Address != "" {
-		// complete_address := "http://" //GIFI OLD
-		complete_address := "https://"
-		// if config.UseSSL {
-		// 	complete_address = "https://"
-		// }
+		complete_address := "http://" //GIFI check on this
+		// complete_address := "https://"
+		if config.UseSSL {
+			complete_address = "https://"
+		}
 		complete_address = complete_address + config.Address + "/storage/v1/"
 		opts = append(opts, option.WithEndpoint(complete_address))
 	}
-	// if config.gcpNativeWithoutAuth {
-	// 	opts = append(opts, option.WithoutAuthentication())
-	// } else {
+
 	// Read the credentials file
 	jsonData, err := os.ReadFile(config.GcpCredentialJSON)
 	if err != nil {
@@ -83,7 +80,6 @@ func newGCPNativeChunkManagerWithConfig(ctx context.Context, config *StorageConf
 		return nil, fmt.Errorf("failed to get project ID: %v", err)
 	}
 	opts = append(opts, option.WithCredentials(creds))
-	// }
 
 	client, err = storage.NewClient(ctx, opts...)
 	if err != nil {
@@ -239,7 +235,6 @@ func (gcm *GCPNativeChunkManager) ListWithPrefixOld(ctx context.Context, bucketN
 	if !recursive {
 		query.Delimiter = "/"
 	}
-	log.Debug("GIFI ListWithPrefix", zap.Any("query.Prefix", query.Prefix))
 	it := gcm.client.Bucket(bucketName).Objects(ctx, query)
 	for {
 		attr, err := it.Next()
@@ -377,7 +372,7 @@ func (gcm *GCPNativeChunkManager) HeadObject(ctx context.Context, bucket, key st
 	if err != nil {
 		return ObjectAttr{}, err
 	}
-	return ObjectAttr{ //GIFI check here
+	return ObjectAttr{
 		Length: attr.Size,
 		Key:    attr.Name,
 	}, nil

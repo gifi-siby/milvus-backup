@@ -822,25 +822,18 @@ func (b *BackupContext) copySegment(ctx context.Context, backupBinlogPath string
 	// milvus_rootpath/insert_log/collection_id/partition_id/segment_id/ =>
 	// backup_rootpath/backup_name/binlog/insert_log/collection_id/partition_id/group_id/segment_id
 	backupPathFunc := func(binlogPath, rootPath, backupBinlogPath string) string {
-		// log.Debug("GIFI-backupPathFunc", zap.String("binlogPath", binlogPath))
-		// log.Debug("GIFI-backupPathFunc", zap.String("rootPath", rootPath))
-		// log.Debug("GIFI-backupPathFunc", zap.String("backupBinlogPath", backupBinlogPath))
-
 		if rootPath == "" {
 			return backupBinlogPath + SEPERATOR + binlogPath
 		} else {
 			checkvar := strings.Replace(binlogPath, rootPath, backupBinlogPath, 1)
-			//log.Debug("GIFI-backupPathFunc", zap.String("checkvar", checkvar))
 			return checkvar
 		}
 	}
 	// insert log
 	for _, binlogs := range segment.GetBinlogs() {
-		// log.Debug("GIFI INSIDE copySegment first loop")
 		for _, binlog := range binlogs.GetBinlogs() {
 			targetPath := backupPathFunc(binlog.GetLogPath(), b.milvusRootPath, backupBinlogPath)
-			//log.Debug("GIFI INSIDE copySegment", zap.String("targetPath", targetPath))
-			// B
+			// use segmentID as group id
 			segment.GroupId = segment.SegmentId
 			if segment.GetGroupId() != 0 {
 				targetPath = strings.Replace(targetPath,
@@ -848,7 +841,6 @@ func (b *BackupContext) copySegment(ctx context.Context, backupBinlogPath string
 					strconv.FormatInt(segment.GetPartitionId(), 10)+"/"+strconv.FormatInt(segment.GetGroupId(), 10),
 					1)
 			}
-			//log.Debug("GIFI INSIDE copySegment", zap.String("targetPath", targetPath))
 			if targetPath == binlog.GetLogPath() {
 				return errors.New(fmt.Sprintf("copy src path and dst path can not be the same, src: %s dst: %s", binlog.GetLogPath(), targetPath))
 			}

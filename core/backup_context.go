@@ -188,7 +188,6 @@ func (b *BackupContext) getMilvusClient() *MilvusClient {
 
 func (b *BackupContext) getMilvusStorageClient() storage.ChunkManager {
 	if b.milvusStorageClient == nil {
-		//log.Info("GIFI INSIDE getMilvusStorageClient")
 		minioEndPoint := b.params.MinioCfg.Address + ":" + b.params.MinioCfg.Port
 		log.Debug("create milvus storage client",
 			zap.String("address", minioEndPoint),
@@ -221,7 +220,6 @@ func (b *BackupContext) getMilvusStorageClient() storage.ChunkManager {
 
 func (b *BackupContext) getBackupStorageClient() storage.ChunkManager {
 	if b.backupStorageClient == nil {
-		//log.Info("GIFI INSIDE getBackupStorageClient")
 		minioEndPoint := b.params.MinioCfg.BackupAddress + ":" + b.params.MinioCfg.BackupPort
 		log.Debug("create backup storage client",
 			zap.String("address", minioEndPoint),

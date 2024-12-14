@@ -182,7 +182,6 @@ func (aos *AzureObjectStorage) StatObject(ctx context.Context, bucketName, objec
 }
 
 func (aos *AzureObjectStorage) ListObjects(ctx context.Context, bucketName string, prefix string, recursive bool) (map[string]int64, error) {
-	//log.Debug("GIFI ListObjects", zap.String("bucketName", bucketName), zap.String("prefix", prefix))
 	pager := aos.clients[bucketName].client.NewContainerClient(bucketName).NewListBlobsFlatPager(&azblob.ListBlobsFlatOptions{
 		Prefix: &prefix,
 	})
@@ -211,19 +210,14 @@ func (aos *AzureObjectStorage) RemoveObject(ctx context.Context, bucketName, obj
 func (aos *AzureObjectStorage) CopyObject(ctx context.Context, fromBucketName, toBucketName, fromPath, toPath string) error {
 	var blobCli *blockblob.Client
 	var fromPathUrl string
-	// if aos.clients[fromBucketName].accessKeyID == aos.clients[toBucketName].accessKeyID {
-	// 	fromPathUrl = fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", aos.clients[fromBucketName].accessKeyID, fromBucketName, fromPath)
-	// 	blobCli = aos.clients[toBucketName].client.NewContainerClient(toBucketName).NewBlockBlobClient(toPath)
-	// } else {
 	srcSAS, err := aos.getSASupdated(fromBucketName)
 	if err != nil {
 		return err
 	}
 	fromPathUrl = fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s?%s", aos.clients[fromBucketName].accessKeyID, fromBucketName, fromPath, srcSAS.Encode())
 	blobCli = aos.clients[toBucketName].client.NewContainerClient(toBucketName).NewBlockBlobClient(toPath)
-	// }
-	// GIFI added from here
-	// Check if fromPath is a folder or a file GIFI
+
+	// Check if fromPath is a folder or a file
 	isDir, err := aos.checkPathType(ctx, fromBucketName, fromPath)
 	if err != nil {
 		return err
@@ -242,12 +236,10 @@ func (aos *AzureObjectStorage) CopyObject(ctx context.Context, fromBucketName, t
 		return nil
 	}()
 	if isDir != "directory" {
-		// log.Debug("GIFI FILE", zap.String("frompath", fromPath))
 		if _, err := blobCli.CopyFromURL(ctx, fromPathUrl, nil); err != nil {
 			return fmt.Errorf("storage: azure copy from url %w abort previous %w", err, abortErr)
 		}
 	}
-	// GIFI END
 	return nil
 }
 
