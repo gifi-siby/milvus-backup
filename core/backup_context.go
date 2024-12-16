@@ -19,6 +19,9 @@ import (
 	"github.com/zilliztech/milvus-backup/core/utils"
 	"github.com/zilliztech/milvus-backup/internal/common"
 	"github.com/zilliztech/milvus-backup/internal/log"
+
+	grpc "google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 const (
@@ -71,7 +74,24 @@ func CreateMilvusClient(ctx context.Context, params paramtable.BackupParams) (go
 	if params.MilvusCfg.AuthorizationEnabled && params.MilvusCfg.User != "" && params.MilvusCfg.Password != "" {
 		if params.MilvusCfg.TLSMode == 0 {
 			c, err = gomilvus.NewDefaultGrpcClientWithAuth(ctx, milvusEndpoint, params.MilvusCfg.User, params.MilvusCfg.Password)
-		} else if params.MilvusCfg.TLSMode == 1 || params.MilvusCfg.TLSMode == 2 {
+		} else if params.MilvusCfg.TLSMode == 1 {
+			var creds credentials.TransportCredentials
+			creds, err = credentials.NewClientTLSFromFile(params.MilvusCfg.TLSCertPath, params.MilvusCfg.ServerName)
+			if err != nil {
+				log.Error("failed to create client from the certificate", zap.Error(err))
+				return nil, err
+			}
+			opts := []grpc.DialOption{
+				grpc.WithTransportCredentials(creds),
+			}
+			c, err = gomilvus.NewClient(ctx, gomilvus.Config{
+				Address:       milvusEndpoint,
+				Username:      params.MilvusCfg.User,
+				Password:      params.MilvusCfg.Password,
+				EnableTLSAuth: true,
+				DialOptions:   opts,
+			})
+		} else if params.MilvusCfg.TLSMode == 2 {
 			c, err = gomilvus.NewDefaultGrpcClientWithTLSAuth(ctx, milvusEndpoint, params.MilvusCfg.User, params.MilvusCfg.Password)
 		} else {
 			log.Error("milvus.TLSMode is not illegal, support value 0, 1, 2")
@@ -101,6 +121,7 @@ func createStorageClient(ctx context.Context, params paramtable.BackupParams) (s
 		BucketName:        params.MinioCfg.BucketName,
 		AccessKeyID:       params.MinioCfg.AccessKeyID,
 		SecretAccessKeyID: params.MinioCfg.SecretAccessKey,
+		GcpCredentialJSON: params.MinioCfg.GcpCredentialJSON,
 		UseSSL:            params.MinioCfg.UseSSL,
 		UseIAM:            params.MinioCfg.UseIAM,
 		IAMEndpoint:       params.MinioCfg.IAMEndpoint,
@@ -169,6 +190,7 @@ func (b *BackupContext) getMilvusStorageClient() storage.ChunkManager {
 			BucketName:        b.params.MinioCfg.BucketName,
 			AccessKeyID:       b.params.MinioCfg.AccessKeyID,
 			SecretAccessKeyID: b.params.MinioCfg.SecretAccessKey,
+			GcpCredentialJSON: b.params.MinioCfg.GcpCredentialJSON,
 			UseSSL:            b.params.MinioCfg.UseSSL,
 			UseIAM:            b.params.MinioCfg.UseIAM,
 			IAMEndpoint:       b.params.MinioCfg.IAMEndpoint,
@@ -200,6 +222,7 @@ func (b *BackupContext) getBackupStorageClient() storage.ChunkManager {
 			BucketName:        b.params.MinioCfg.BackupBucketName,
 			AccessKeyID:       b.params.MinioCfg.BackupAccessKeyID,
 			SecretAccessKeyID: b.params.MinioCfg.BackupSecretAccessKey,
+			GcpCredentialJSON: b.params.MinioCfg.BackupGcpCredentialJSON,
 			UseSSL:            b.params.MinioCfg.BackupUseSSL,
 			UseIAM:            b.params.MinioCfg.BackupUseIAM,
 			IAMEndpoint:       b.params.MinioCfg.BackupIAMEndpoint,

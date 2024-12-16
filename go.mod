@@ -35,6 +35,7 @@ require (
 	golang.org/x/oauth2 v0.0.0-20210402161424-2e8d93401602
 	golang.org/x/sync v0.8.0
 	golang.org/x/time v0.0.0-20201208040808-7e3f01d25324
+	google.golang.org/api v0.187.0
 	google.golang.org/grpc v1.48.0
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -46,6 +47,8 @@ require github.com/milvus-io/milvus-proto/go-api/v2 v2.3.4-0.20240909041258-8f8c
 
 require (
 	cloud.google.com/go v0.81.0 // indirect
+	cloud.google.com/go/auth v0.6.1 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.2.2 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.3.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.1.1 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect

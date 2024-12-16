@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -52,6 +53,11 @@ type AzureObjectStorage struct {
 	//Client *service.Client
 	clients map[string]*innerAzureClient
 	//StorageConfig *StorageConfig
+}
+
+// Helper function to convert string to *string
+func toPtr(s string) *string {
+	return &s
 }
 
 //func NewAzureClient(ctx context.Context, cfg *StorageConfig) (*azblob.Client, error) {
@@ -175,6 +181,7 @@ func (aos *AzureObjectStorage) StatObject(ctx context.Context, bucketName, objec
 }
 
 func (aos *AzureObjectStorage) ListObjects(ctx context.Context, bucketName string, prefix string, recursive bool) (map[string]int64, error) {
+	//log.Debug("GIFI ListObjects", zap.String("bucketName", bucketName), zap.String("prefix", prefix))
 	pager := aos.clients[bucketName].client.NewContainerClient(bucketName).NewListBlobsFlatPager(&azblob.ListBlobsFlatOptions{
 		Prefix: &prefix,
 	})
@@ -203,16 +210,17 @@ func (aos *AzureObjectStorage) RemoveObject(ctx context.Context, bucketName, obj
 func (aos *AzureObjectStorage) CopyObject(ctx context.Context, fromBucketName, toBucketName, fromPath, toPath string) error {
 	var blobCli *blockblob.Client
 	var fromPathUrl string
-	if aos.clients[fromBucketName].accessKeyID == aos.clients[toBucketName].accessKeyID {
-		fromPathUrl = fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", aos.clients[fromBucketName].accessKeyID, fromBucketName, fromPath)
-		blobCli = aos.clients[toBucketName].client.NewContainerClient(toBucketName).NewBlockBlobClient(toPath)
-	} else {
-		srcSAS, err := aos.getSAS(fromBucketName)
-		if err != nil {
-			return err
-		}
-		fromPathUrl = fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s?%s", aos.clients[fromBucketName].accessKeyID, fromBucketName, fromPath, srcSAS.Encode())
-		blobCli = aos.clients[toBucketName].client.NewContainerClient(toBucketName).NewBlockBlobClient(toPath)
+	srcSAS, err := aos.getSAS(fromBucketName)
+	if err != nil {
+		return err
+	}
+	fromPathUrl = fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s?%s", aos.clients[fromBucketName].accessKeyID, fromBucketName, fromPath, srcSAS.Encode())
+	blobCli = aos.clients[toBucketName].client.NewContainerClient(toBucketName).NewBlockBlobClient(toPath)
+
+	// Check if fromPath is a folder or a file
+	isDir, err := aos.checkPathType(ctx, fromBucketName, fromPath)
+	if err != nil {
+		return err
 	}
 
 	// we need to abort the previous copy operation before copy from url
@@ -229,36 +237,74 @@ func (aos *AzureObjectStorage) CopyObject(ctx context.Context, fromBucketName, t
 		return nil
 	}()
 
-	if _, err := blobCli.CopyFromURL(ctx, fromPathUrl, nil); err != nil {
-		return fmt.Errorf("storage: azure copy from url %w abort previous %w", err, abortErr)
+	if isDir != "directory" {
+		if _, err := blobCli.CopyFromURL(ctx, fromPathUrl, nil); err != nil {
+			return fmt.Errorf("storage: azure copy from url %w abort previous %w", err, abortErr)
+		}
 	}
 
 	return nil
 }
 
 func (aos *AzureObjectStorage) getSAS(bucket string) (*sas.QueryParameters, error) {
-	srcSvcCli := aos.clients[bucket].client
-	// Set current and past time and create key
-	now := time.Now().UTC().Add(-10 * time.Second)
-	expiry := now.Add(48 * time.Hour)
-	info := service.KeyInfo{
-		Start:  to.Ptr(now.UTC().Format(sas.TimeFormat)),
-		Expiry: to.Ptr(expiry.UTC().Format(sas.TimeFormat)),
-	}
-	udc, err := srcSvcCli.GetUserDelegationCredential(context.Background(), info, nil)
+	credential, err := azblob.NewSharedKeyCredential(aos.clients[bucket].accessKeyID, aos.clients[bucket].secretAccessKeyID)
 	if err != nil {
 		return nil, err
 	}
-	// Create Blob Signature Values with desired permissions and sign with user delegation credential
-	sasQueryParams, err := sas.BlobSignatureValues{
+	sasQueryParams, err := sas.AccountSignatureValues{
 		Protocol:      sas.ProtocolHTTPS,
-		StartTime:     time.Now().UTC().Add(time.Second * -10),
-		ExpiryTime:    time.Now().UTC().Add(time.Duration(sasSignMinute * time.Minute)),
-		Permissions:   to.Ptr(sas.ContainerPermissions{Read: true, List: true}).String(),
-		ContainerName: bucket,
-	}.SignWithUserDelegation(udc)
+		ExpiryTime:    time.Now().UTC().Add(48 * time.Hour), // 48-hours before expiration,
+		Permissions:   to.Ptr(sas.AccountPermissions{Read: true, List: true}).String(),
+		ResourceTypes: to.Ptr(sas.AccountResourceTypes{Container: true, Object: true}).String(),
+	}.SignWithSharedKey(credential)
 	if err != nil {
 		return nil, err
 	}
 	return &sasQueryParams, nil
+}
+
+func (aos *AzureObjectStorage) checkPathType(ctx context.Context, bucketName, path string) (string, error) {
+	containerClient := aos.clients[bucketName].client.NewContainerClient(bucketName)
+
+	// Ensure the prefix ends with a slash for directory check
+	directoryPrefix := path
+	if !strings.HasSuffix(directoryPrefix, "/") {
+		directoryPrefix += "/"
+	}
+	// List blobs with the specified prefix
+	pager := containerClient.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{
+		Prefix: toPtr(directoryPrefix),
+	})
+
+	hasBlobs := false
+	for pager.More() {
+		pageResp, err := pager.NextPage(ctx)
+		if err != nil {
+			return "", err
+		}
+
+		for _, blobItem := range pageResp.Segment.BlobItems {
+			if blobItem.Name != nil && strings.HasPrefix(*blobItem.Name, directoryPrefix) {
+				hasBlobs = true
+				break
+			}
+		}
+		if hasBlobs {
+			break // Found at least one blob, path is a directory
+		}
+	}
+
+	// If no blobs found with the prefix, check if the path itself is a blob
+	if !hasBlobs {
+		blobClient := containerClient.NewBlockBlobClient(path)
+		_, err := blobClient.GetProperties(ctx, nil)
+		if err != nil {
+			if strings.Contains(err.Error(), "404") {
+				return "not found", fmt.Errorf("path does not exist")
+			}
+			return "", err
+		}
+		return "file", nil
+	}
+	return "directory", nil
 }
