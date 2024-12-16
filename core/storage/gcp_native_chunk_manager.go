@@ -86,7 +86,7 @@ func newGCPNativeChunkManagerWithConfig(ctx context.Context, config *StorageConf
 	checkBucketFn := func() error {
 		bucket := client.Bucket(config.BucketName)
 		_, err := bucket.Attrs(ctx)
-		if err == storage.ErrBucketNotExist && storage.createBucket {
+		if err == storage.ErrBucketNotExist && config.CreateBucket {
 			log.Info("gcs bucket does not exist, create bucket.", zap.String("bucket name", config.BucketName))
 			err = client.Bucket(config.BucketName).Create(ctx, projectId, nil)
 			if err != nil {
