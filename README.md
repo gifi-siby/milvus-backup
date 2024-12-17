@@ -158,6 +158,7 @@ backupAddress: s3.{your-aws-region}.amazonaws.com  # Address of AWS S3 (replace 
 backupPort: 443                              # Default port for AWS S3
 backupAccessKeyID: <your-access-key-id>      # Access key ID for your AWS S3
 backupSecretAccessKey: <your-secret-key>     # Secret access key for AWS S3
+backupGcpCredentialJSON: ""                  # The JSON content contains the gcs service account credentials. Used only for the "gcpnative" cloud provider.
 backupBucketName: "your-bucket-name"         # Bucket name where the backups will be stored
 backupRootPath: "backups"                    # Root path inside the bucket to store backups
 backupUseSSL: true                           # Use SSL for secure connections (Required)
