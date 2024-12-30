@@ -40,8 +40,8 @@ type YAMLConFig struct {
 		TlsMode              int    `yaml:"tlsMode"`
 		User                 string `yaml:"user"`
 		Password             string `yaml:"password"`
-		tlsCertPath          string `yaml:"tlsCertPath"`
-		serverName           string `yaml:"serverName"`
+		TlsCertPath          string `yaml:"tlsCertPath"`
+		ServerName           string `yaml:"serverName"`
 	} `yaml:"milvus"`
 	Minio struct {
 		Address                 string `yaml:"address"`
@@ -82,8 +82,8 @@ func printParams(base *paramtable.BackupParams) {
 	yml.Milvus.TlsMode = base.ParseIntWithDefault("milvus.tlsMode", 0)
 	yml.Milvus.User = base.BaseTable.LoadWithDefault("milvus.user", "")
 	yml.Milvus.Password = base.BaseTable.LoadWithDefault("milvus.password", "")
-	yml.Milvus.tlsCertPath = base.BaseTable.LoadWithDefault("milvus.tlsCertPath", "")
-	yml.Milvus.serverName = base.BaseTable.LoadWithDefault("milvus.serverName", "localhost")
+	yml.Milvus.TlsCertPath = base.BaseTable.LoadWithDefault("milvus.tlsCertPath", "")
+	yml.Milvus.ServerName = base.BaseTable.LoadWithDefault("milvus.serverName", "localhost")
 
 	yml.Minio.Address = base.LoadWithDefault("minio.address", "localhost")
 	yml.Minio.Port = base.ParseIntWithDefault("minio.port", 9000)

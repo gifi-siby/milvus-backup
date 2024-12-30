@@ -298,7 +298,7 @@ func (p *MinioConfig) initSecretAccessKey() {
 }
 
 func (p *MinioConfig) initGcpCredentialJSON() {
-	gcpCredentialJSON := p.Base.LoadWithDefault("minio.gcpCredentialJSON", DefaultMinioGcpCredentialJSON)
+	gcpCredentialJSON := p.Base.LoadWithDefault("minio.gcpCredentialJSON", DefaultGcpCredentialJSON)
 	p.GcpCredentialJSON = gcpCredentialJSON
 }
 
@@ -413,7 +413,7 @@ func (p *MinioConfig) initBackupSecretAccessKey() {
 }
 
 func (p *MinioConfig) initBackupGcpCredentialJSON() {
-	gcpCredentialJSON := p.Base.LoadWithDefault("minio.backupGcpCredentialJSON", DefaultMinioGcpCredentialJSON)
+	gcpCredentialJSON := p.Base.LoadWithDefault("minio.backupGcpCredentialJSON", DefaultGcpCredentialJSON)
 	p.BackupGcpCredentialJSON = gcpCredentialJSON
 }
 

@@ -33,17 +33,17 @@ import (
 const (
 	DefaultBackupYaml = "backup.yaml"
 
-	DefaultMinioAddress           = "localhost"
-	DefaultMinioPort              = "9000"
-	DefaultMinioAccessKey         = "minioadmin"
-	DefaultMinioSecretAccessKey   = "minioadmin"
-	DefaultMinioGcpCredentialJSON = ""
-	DefaultMinioUseSSL            = "false"
-	DefaultMinioBucketName        = "a-bucket"
-	DefaultMinioRootPath          = "files"
-	DefaultMinioUseIAM            = "false"
-	DefaultMinioCloudProvider     = "aws"
-	DefaultMinioIAMEndpoint       = ""
+	DefaultMinioAddress         = "localhost"
+	DefaultMinioPort            = "9000"
+	DefaultMinioAccessKey       = "minioadmin"
+	DefaultMinioSecretAccessKey = "minioadmin"
+	DefaultGcpCredentialJSON    = ""
+	DefaultMinioUseSSL          = "false"
+	DefaultMinioBucketName      = "a-bucket"
+	DefaultMinioRootPath        = "files"
+	DefaultMinioUseIAM          = "false"
+	DefaultMinioCloudProvider   = "aws"
+	DefaultMinioIAMEndpoint     = ""
 
 	DefaultLogLevel = "WARNING"
 
@@ -431,9 +431,9 @@ func (gp *BaseTable) loadMinioConfig() {
 		_ = gp.Save("minio.secretAccessKey", minioSecretKey)
 	}
 
-	minioGcpCredentialJSON := os.Getenv("MINIO_GCP_KEY_JSON")
-	if minioGcpCredentialJSON != "" {
-		_ = gp.Save("minio.gcpCredentialJSON", minioGcpCredentialJSON)
+	gcpCredentialJSON := os.Getenv("GCP_KEY_JSON")
+	if gcpCredentialJSON != "" {
+		_ = gp.Save("minio.gcpCredentialJSON", gcpCredentialJSON)
 	}
 
 	minioUseSSL := os.Getenv("MINIO_USE_SSL")
@@ -491,9 +491,9 @@ func (gp *BaseTable) loadMinioConfig() {
 		_ = gp.Save("minio.backupSecretAccessKey", minioBackupSecretKey)
 	}
 
-	minioBackupGcpCredentialJSON := os.Getenv("MINIO_BACKUP_GCP_KEY_JSON")
-	if minioBackupGcpCredentialJSON != "" {
-		_ = gp.Save("minio.backupGcpCredentialJSON", minioBackupGcpCredentialJSON)
+	backupGcpCredentialJSON := os.Getenv("BACKUP_GCP_KEY_JSON")
+	if backupGcpCredentialJSON != "" {
+		_ = gp.Save("minio.backupGcpCredentialJSON", backupGcpCredentialJSON)
 	}
 
 	minioBackupUseSSL := os.Getenv("MINIO_BACKUP_USE_SSL")

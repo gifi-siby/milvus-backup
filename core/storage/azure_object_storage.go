@@ -55,11 +55,6 @@ type AzureObjectStorage struct {
 	//StorageConfig *StorageConfig
 }
 
-// Helper function to convert string to *string
-func toPtr(s string) *string {
-	return &s
-}
-
 //func NewAzureClient(ctx context.Context, cfg *StorageConfig) (*azblob.Client, error) {
 //	cred, err := azblob.NewSharedKeyCredential(cfg.AccessKeyID, cfg.SecretAccessKeyID)
 //	if err != nil {
@@ -181,7 +176,6 @@ func (aos *AzureObjectStorage) StatObject(ctx context.Context, bucketName, objec
 }
 
 func (aos *AzureObjectStorage) ListObjects(ctx context.Context, bucketName string, prefix string, recursive bool) (map[string]int64, error) {
-	//log.Debug("GIFI ListObjects", zap.String("bucketName", bucketName), zap.String("prefix", prefix))
 	pager := aos.clients[bucketName].client.NewContainerClient(bucketName).NewListBlobsFlatPager(&azblob.ListBlobsFlatOptions{
 		Prefix: &prefix,
 	})
@@ -217,12 +211,6 @@ func (aos *AzureObjectStorage) CopyObject(ctx context.Context, fromBucketName, t
 	fromPathUrl = fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s?%s", aos.clients[fromBucketName].accessKeyID, fromBucketName, fromPath, srcSAS.Encode())
 	blobCli = aos.clients[toBucketName].client.NewContainerClient(toBucketName).NewBlockBlobClient(toPath)
 
-	// Check if fromPath is a folder or a file
-	isDir, err := aos.checkPathType(ctx, fromBucketName, fromPath)
-	if err != nil {
-		return err
-	}
-
 	// we need to abort the previous copy operation before copy from url
 	abortErr := func() error {
 		blobProperties, err := blobCli.BlobClient().GetProperties(ctx, nil)
@@ -237,7 +225,12 @@ func (aos *AzureObjectStorage) CopyObject(ctx context.Context, fromBucketName, t
 		return nil
 	}()
 
-	if isDir != "directory" {
+	// Check if fromPath is a folder or a file
+	isFileCheck, err := aos.isFile(ctx, fromBucketName, fromPath)
+	if err != nil {
+		return err
+	}
+	if isFileCheck {
 		if _, err := blobCli.CopyFromURL(ctx, fromPathUrl, nil); err != nil {
 			return fmt.Errorf("storage: azure copy from url %w abort previous %w", err, abortErr)
 		}
@@ -263,7 +256,7 @@ func (aos *AzureObjectStorage) getSAS(bucket string) (*sas.QueryParameters, erro
 	return &sasQueryParams, nil
 }
 
-func (aos *AzureObjectStorage) checkPathType(ctx context.Context, bucketName, path string) (string, error) {
+func (aos *AzureObjectStorage) isFile(ctx context.Context, bucketName, path string) (bool, error) {
 	containerClient := aos.clients[bucketName].client.NewContainerClient(bucketName)
 
 	// Ensure the prefix ends with a slash for directory check
@@ -273,14 +266,14 @@ func (aos *AzureObjectStorage) checkPathType(ctx context.Context, bucketName, pa
 	}
 	// List blobs with the specified prefix
 	pager := containerClient.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{
-		Prefix: toPtr(directoryPrefix),
+		Prefix: &directoryPrefix,
 	})
 
 	hasBlobs := false
 	for pager.More() {
 		pageResp, err := pager.NextPage(ctx)
 		if err != nil {
-			return "", err
+			return false, err
 		}
 
 		for _, blobItem := range pageResp.Segment.BlobItems {
@@ -300,11 +293,11 @@ func (aos *AzureObjectStorage) checkPathType(ctx context.Context, bucketName, pa
 		_, err := blobClient.GetProperties(ctx, nil)
 		if err != nil {
 			if strings.Contains(err.Error(), "404") {
-				return "not found", fmt.Errorf("path does not exist")
+				return false, fmt.Errorf("path does not exist")
 			}
-			return "", err
+			return false, err
 		}
-		return "file", nil
+		return true, nil
 	}
-	return "directory", nil
+	return false, nil
 }

@@ -151,19 +151,16 @@ func (gcm *GCPNativeChunkManager) Write(ctx context.Context, bucketName string, 
 
 // Exist checks whether chunk is saved to GCS storage.
 func (gcm *GCPNativeChunkManager) Exist(ctx context.Context, bucketName string, filePath string) (bool, error) {
-	query := &storage.Query{
-		Prefix:    filePath,
-		Delimiter: "/",
-	}
-	it := gcm.client.Bucket(bucketName).Objects(ctx, query)
-	_, err := it.Next()
-
-	if err == iterator.Done {
-		return false, nil
-	} else if err != nil {
+	objectKeys, _, err := gcm.ListWithPrefix(ctx, bucketName, filePath, false)
+	if err != nil {
 		return false, err
 	}
-	return true, nil
+
+	if len(objectKeys) > 0 {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // Read reads the storage data if exists.
@@ -172,7 +169,11 @@ func (gcm *GCPNativeChunkManager) Read(ctx context.Context, bucketName string, f
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func() {
+		if err := rc.Close(); err != nil {
+			log.Error("Failed to close reader", zap.Error(err))
+		}
+	}()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {
@@ -205,10 +206,10 @@ func (gcm *GCPNativeChunkManager) ListWithPrefix(ctx context.Context, bucketName
 			return nil, nil, fmt.Errorf("failed to list objects: %w", err)
 		}
 		// Check if it's an object (not a directory)
-		if recursive || attrs.Name != "" {
+		if attrs.Name != "" {
 			objectKeys = append(objectKeys, attrs.Name)
 			sizes = append(sizes, attrs.Size)
-		} else if !recursive && attrs.Prefix != "" {
+		} else if attrs.Prefix != "" {
 			// If recursive is false, directories are handled via attrs.Prefix (not attrs.Name)
 			// For directories, we only add the directory name (attrs.Prefix) once
 			objectKeys = append(objectKeys, attrs.Prefix)
@@ -228,21 +229,16 @@ func (gcm *GCPNativeChunkManager) Remove(ctx context.Context, bucketName string,
 }
 
 func (gcm *GCPNativeChunkManager) RemoveWithPrefix(ctx context.Context, bucketName string, prefix string) error {
-	objects := gcm.client.Bucket(bucketName).Objects(ctx, &storage.Query{Prefix: prefix})
-
+	objectKeys, _, err := gcm.ListWithPrefix(ctx, bucketName, prefix, false)
+	if err != nil {
+		return err
+	}
 	// Group objects by their depth (number of / in the key)
 	groupedByLevel := make(map[int][]string)
 	var maxLevel int
-	for {
-		objAttrs, err := objects.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		level := strings.Count(objAttrs.Name, "/")
-		groupedByLevel[level] = append(groupedByLevel[level], objAttrs.Name)
+	for _, key := range objectKeys {
+		level := strings.Count(key, "/")
+		groupedByLevel[level] = append(groupedByLevel[level], key)
 		if level > maxLevel {
 			maxLevel = level
 		}
@@ -250,10 +246,11 @@ func (gcm *GCPNativeChunkManager) RemoveWithPrefix(ctx context.Context, bucketNa
 
 	for level := maxLevel; level >= 0; level-- {
 		// Get the objects at this level
-		keysAtLevel := groupedByLevel[level]
-		if len(keysAtLevel) == 0 {
+		keysAtLevel, exists := groupedByLevel[level]
+		if !exists || len(keysAtLevel) == 0 {
 			continue
 		}
+
 		// Dynamically adjust maxGoroutines based on the number of objects at this level
 		maxGoroutines := 10
 		if len(keysAtLevel) < maxGoroutines {
@@ -264,14 +261,16 @@ func (gcm *GCPNativeChunkManager) RemoveWithPrefix(ctx context.Context, bucketNa
 			runningGroup, groupCtx := errgroup.WithContext(context.Background())
 			for j := 0; j < maxGoroutines && i < len(keysAtLevel); j++ {
 				key := keysAtLevel[i]
-				runningGroup.Go(func() error {
-					err := gcm.Remove(groupCtx, bucketName, key)
-					if err != nil {
-						log.Warn("failed to remove object", zap.String("bucket", bucketName), zap.String("path", key), zap.Error(err))
-						return err
+				runningGroup.Go(func(key string) func() error {
+					return func() error {
+						err := gcm.Remove(groupCtx, bucketName, key)
+						if err != nil {
+							log.Warn("failed to remove object", zap.String("bucket", bucketName), zap.String("path", key), zap.Error(err))
+							return err
+						}
+						return nil
 					}
-					return nil
-				})
+				}(key))
 				i++
 			}
 			if err := runningGroup.Wait(); err != nil {
@@ -279,7 +278,7 @@ func (gcm *GCPNativeChunkManager) RemoveWithPrefix(ctx context.Context, bucketNa
 			}
 		}
 	}
-	err := gcm.Remove(ctx, bucketName, strings.TrimSuffix(prefix, "/"))
+	err = gcm.Remove(ctx, bucketName, strings.TrimSuffix(prefix, "/"))
 	if err != nil {
 		log.Warn("failed to remove object", zap.String("bucket", bucketName), zap.String("path", prefix), zap.Error(err))
 		return err
@@ -289,184 +288,53 @@ func (gcm *GCPNativeChunkManager) RemoveWithPrefix(ctx context.Context, bucketNa
 
 // Copy files from fromPath into toPath recursively
 func (gcm *GCPNativeChunkManager) Copy(ctx context.Context, fromBucketName string, toBucketName string, fromPath string, toPath string) error {
-	bkt := gcm.client.Bucket(fromBucketName)
-	it := bkt.Objects(ctx, &storage.Query{Prefix: fromPath})
-	for {
-		objAttrs, err := it.Next()
-		if err == iterator.Done {
-			break // No more objects to copy
-		}
-		if err != nil {
-			log.Error("Error listing objects", zap.Error(err))
-			return err
-		}
-
-		srcObjectKey := objAttrs.Name
+	objectKeys, _, err := gcm.ListWithPrefix(ctx, fromBucketName, fromPath, true)
+	if err != nil {
+		log.Error("Error listing objects", zap.Error(err))
+		return err
+	}
+	for _, srcObjectKey := range objectKeys {
 		dstObjectKey := strings.Replace(srcObjectKey, fromPath, toPath, 1)
 
-		srcReader, err := bkt.Object(srcObjectKey).NewReader(ctx)
+		srcReader, err := gcm.client.Bucket(fromBucketName).Object(srcObjectKey).NewReader(ctx)
 		if err != nil {
 			log.Error("Error creating reader for object", zap.String("srcObjectKey", srcObjectKey), zap.Error(err))
 			return err
 		}
 
-		defer func() {
+		defer func(srcObjectKey string, srcReader *storage.Reader) {
 			if err := srcReader.Close(); err != nil {
 				log.Error("Error closing source reader", zap.String("srcObjectKey", srcObjectKey), zap.Error(err))
 			}
-		}()
+		}(srcObjectKey, srcReader)
 
 		dstWriter := gcm.client.Bucket(toBucketName).Object(dstObjectKey).NewWriter(ctx)
+		defer func(dstObjectKey string, dstWriter *storage.Writer) {
+			if err := dstWriter.Close(); err != nil {
+				log.Error("Error closing destination writer", zap.String("dstObjectKey", dstObjectKey), zap.Error(err))
+			}
+		}(dstObjectKey, dstWriter)
 
 		if _, err := io.Copy(dstWriter, srcReader); err != nil {
 			log.Error("Error copying object", zap.String("from", srcObjectKey), zap.String("to", dstObjectKey), zap.Error(err))
-			_ = dstWriter.Close()
-			return err
-		}
-
-		if err := dstWriter.Close(); err != nil {
-			log.Error("Error closing destination writer", zap.String("dstObjectKey", dstObjectKey), zap.Error(err))
 			return err
 		}
 	}
 	return nil
 }
 
-// ListObjectsPage paginate list of all objects
 func (gcm *GCPNativeChunkManager) ListObjectsPage(ctx context.Context, bucket, prefix string) (ListObjectsPaginator, error) {
-	// Implement pagination logic
-	return nil, nil
+	panic("not implemented")
 }
 
-// HeadObject determine if an object exists, and you have permission to access it.
 func (gcm *GCPNativeChunkManager) HeadObject(ctx context.Context, bucket, key string) (ObjectAttr, error) {
-	attr, err := gcm.client.Bucket(bucket).Object(key).Attrs(ctx)
-	if err != nil {
-		return ObjectAttr{}, err
-	}
-	return ObjectAttr{ //GIFI check here
-		Length: attr.Size,
-		Key:    attr.Name,
-	}, nil
+	panic("not implemented")
 }
 
-// GetObject get an object
 func (gcm *GCPNativeChunkManager) GetObject(ctx context.Context, bucketName, key string) (*Object, error) {
-	obj := gcm.client.Bucket(bucketName).Object(key)
-	// Return the object with its length and the wrapped reader
-	attrs, err := obj.Attrs(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &Object{
-		Length: attrs.Size,
-		Body:   NewGCSReader(obj), // Wrap the storage.Reader
-	}, nil
+	panic("not implemented")
 }
 
-// UploadObject stream upload an object
 func (gcm *GCPNativeChunkManager) UploadObject(ctx context.Context, i UploadObjectInput) error {
-	// Read the content from the io.Reader
-	content, err := io.ReadAll(i.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read content from body: %w", err)
-	}
-	return gcm.Write(ctx, i.Bucket, i.Key, content)
-}
-
-// GCSReader struct implementing SeekableReadCloser
-type GCSReader struct {
-	obj      *storage.ObjectHandle
-	position int64
-	data     []byte
-	reader   *storage.Reader
-	closed   bool
-}
-
-// NewGCSReader creates a new GCSReader
-func NewGCSReader(obj *storage.ObjectHandle) *GCSReader {
-	return &GCSReader{
-		obj:      obj,
-		position: 0,
-		data:     make([]byte, 0),
-		closed:   false,
-	}
-}
-
-func (g *GCSReader) Read(p []byte) (n int, err error) {
-	if g.closed {
-		return 0, io.EOF
-	}
-
-	// Read until the buffer is filled or EOF
-	if g.position < int64(len(g.data)) {
-		n = copy(p, g.data[g.position:])
-		g.position += int64(n)
-		return n, nil
-	}
-
-	// Need to fetch more data from GCS
-	if g.reader == nil {
-		var err error
-		g.reader, err = g.obj.NewReader(context.Background())
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	n, err = g.reader.Read(p)
-	g.data = append(g.data, p[:n]...) // Store fetched data
-	g.position += int64(n)
-
-	if err == io.EOF {
-		g.closed = true
-	}
-	return n, err
-}
-
-func (g *GCSReader) Close() error {
-	if g.closed {
-		return nil
-	}
-	g.closed = true
-	if g.reader != nil {
-		return g.reader.Close()
-	}
-	return nil
-}
-
-func (g *GCSReader) Seek(offset int64, whence int) (int64, error) {
-	switch whence {
-	case io.SeekStart:
-		g.position = offset
-	case io.SeekCurrent:
-		g.position += offset
-	case io.SeekEnd:
-		attrs, err := g.obj.Attrs(context.Background())
-		if err != nil {
-			return 0, err
-		}
-		g.position = attrs.Size + offset
-	default:
-		return 0, fmt.Errorf("invalid whence")
-	}
-
-	if g.position < 0 {
-		return 0, fmt.Errorf("negative offset")
-	}
-
-	// Reset for new reads
-	g.reader.Close()
-	g.reader = nil
-
-	return g.position, nil
-}
-
-func (gr *GCSReader) ReadAt(p []byte, off int64) (n int, err error) {
-	reader, err := gr.obj.NewRangeReader(context.Background(), off, int64(len(p)))
-	if err != nil {
-		return 0, err
-	}
-	defer reader.Close()
-	return io.ReadFull(reader, p)
+	panic("not implemented")
 }

@@ -289,10 +289,11 @@ func (mcm *AzureChunkManager) RemoveWithPrefix(ctx context.Context, bucketName s
 	}
 	for level := maxLevel; level >= 0; level-- {
 		// Get the objects at this level
-		keysAtLevel := groupedByLevel[level]
-		if len(keysAtLevel) == 0 {
+		keysAtLevel, exists := groupedByLevel[level]
+		if !exists || len(keysAtLevel) == 0 {
 			continue
 		}
+
 		// Dynamically adjust maxGoroutines based on the number of objects at this level
 		maxGoroutines := 10
 		if len(keysAtLevel) < maxGoroutines {
@@ -303,14 +304,16 @@ func (mcm *AzureChunkManager) RemoveWithPrefix(ctx context.Context, bucketName s
 			runningGroup, groupCtx := errgroup.WithContext(context.Background())
 			for j := 0; j < maxGoroutines && i < len(keysAtLevel); j++ {
 				key := keysAtLevel[i]
-				runningGroup.Go(func() error {
-					err := mcm.removeObject(groupCtx, bucketName, key)
-					if err != nil {
-						log.Warn("failed to remove object", zap.String("bucket", bucketName), zap.String("path", key), zap.Error(err))
-						return err
+				runningGroup.Go(func(key string) func() error {
+					return func() error {
+						err := mcm.removeObject(groupCtx, bucketName, key)
+						if err != nil {
+							log.Warn("failed to remove object", zap.String("bucket", bucketName), zap.String("path", key), zap.Error(err))
+							return err
+						}
+						return nil
 					}
-					return nil
-				})
+				}(key))
 				i++
 			}
 			if err := runningGroup.Wait(); err != nil {
