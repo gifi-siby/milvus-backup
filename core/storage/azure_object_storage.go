@@ -257,47 +257,33 @@ func (aos *AzureObjectStorage) getSAS(bucket string) (*sas.QueryParameters, erro
 }
 
 func (aos *AzureObjectStorage) isFile(ctx context.Context, bucketName, path string) (bool, error) {
-	containerClient := aos.clients[bucketName].client.NewContainerClient(bucketName)
-
-	// Ensure the prefix ends with a slash for directory check
+	// Prefix ends with a slash for directory-like behavior
 	directoryPrefix := path
 	if !strings.HasSuffix(directoryPrefix, "/") {
 		directoryPrefix += "/"
 	}
-	// List blobs with the specified prefix
-	pager := containerClient.NewListBlobsFlatPager(&container.ListBlobsFlatOptions{
-		Prefix: &directoryPrefix,
-	})
 
-	hasBlobs := false
-	for pager.More() {
-		pageResp, err := pager.NextPage(ctx)
-		if err != nil {
-			return false, err
-		}
-
-		for _, blobItem := range pageResp.Segment.BlobItems {
-			if blobItem.Name != nil && strings.HasPrefix(*blobItem.Name, directoryPrefix) {
-				hasBlobs = true
-				break
-			}
-		}
-		if hasBlobs {
-			break // Found at least one blob, path is a directory
-		}
+	objects, err := aos.ListObjects(ctx, bucketName, directoryPrefix, false)
+	if err != nil {
+		return false, err
 	}
 
-	// If no blobs found with the prefix, check if the path itself is a blob
-	if !hasBlobs {
-		blobClient := containerClient.NewBlockBlobClient(path)
-		_, err := blobClient.GetProperties(ctx, nil)
-		if err != nil {
-			if strings.Contains(err.Error(), "404") {
-				return false, fmt.Errorf("path does not exist")
-			}
-			return false, err
+	if len(objects) > 0 {
+		// If ListObjects called with end file name, returns file name in the objects
+		if _, found := objects[path]; found {
+			return true, nil
 		}
-		return true, nil
+		return false, nil
 	}
-	return false, nil
+
+	// Check if the path itself is a file
+	blobClient := aos.clients[bucketName].client.NewContainerClient(bucketName).NewBlockBlobClient(path)
+	_, err = blobClient.GetProperties(ctx, nil)
+	if err != nil {
+		if strings.Contains(err.Error(), "404") {
+			return false, fmt.Errorf("path does not exist")
+		}
+		return false, err
+	}
+	return true, nil
 }
