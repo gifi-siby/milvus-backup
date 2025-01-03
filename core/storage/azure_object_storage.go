@@ -267,7 +267,7 @@ func (aos *AzureObjectStorage) isFile(ctx context.Context, bucketName, path stri
 	if err != nil {
 		return false, err
 	}
-	// If ListObjects called with end file name, returns file name in the objects
+	// If ListObjects called with end file name, it returns file name itself
 	objCount := len(objects)
 	if objCount == 1 {
 		if _, found := objects[path]; found {
