@@ -267,23 +267,15 @@ func (aos *AzureObjectStorage) isFile(ctx context.Context, bucketName, path stri
 	if err != nil {
 		return false, err
 	}
-
-	if len(objects) > 0 {
-		// If ListObjects called with end file name, returns file name in the objects
+	// If ListObjects called with end file name, returns file name in the objects
+	objCount := len(objects)
+	if objCount == 1 {
 		if _, found := objects[path]; found {
 			return true, nil
 		}
 		return false, nil
+	} else {
+		return false, nil
 	}
-
-	// Check if the path itself is a file
-	blobClient := aos.clients[bucketName].client.NewContainerClient(bucketName).NewBlockBlobClient(path)
-	_, err = blobClient.GetProperties(ctx, nil)
-	if err != nil {
-		if strings.Contains(err.Error(), "404") {
-			return false, fmt.Errorf("path does not exist")
-		}
-		return false, err
-	}
-	return true, nil
+	return false, nil
 }
