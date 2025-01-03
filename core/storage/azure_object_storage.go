@@ -226,11 +226,11 @@ func (aos *AzureObjectStorage) CopyObject(ctx context.Context, fromBucketName, t
 	}()
 
 	// Check if fromPath is a folder or a file
-	isFileCheck, err := aos.isFile(ctx, fromBucketName, fromPath)
+	isFile, err := aos.isFile(ctx, fromBucketName, fromPath)
 	if err != nil {
 		return err
 	}
-	if isFileCheck {
+	if isFile {
 		if _, err := blobCli.CopyFromURL(ctx, fromPathUrl, nil); err != nil {
 			return fmt.Errorf("storage: azure copy from url %w abort previous %w", err, abortErr)
 		}
@@ -273,9 +273,6 @@ func (aos *AzureObjectStorage) isFile(ctx context.Context, bucketName, path stri
 		if _, found := objects[path]; found {
 			return true, nil
 		}
-		return false, nil
-	} else {
-		return false, nil
 	}
 	return false, nil
 }
