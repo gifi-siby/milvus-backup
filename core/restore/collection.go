@@ -33,7 +33,7 @@ import (
 const (
 	_bulkInsertTimeout             = 60 * time.Minute
 	_bulkInsertCheckInterval       = 3 * time.Second
-	_bulkInsertRestfulAPIChunkSize = 1024
+	_bulkInsertRestfulAPIChunkSize = 256
 )
 
 type tearDownFn func(ctx context.Context) error
@@ -156,13 +156,27 @@ func (ct *CollectionTask) privateExecute(ctx context.Context) error {
 	}
 
 	// restore collection data
+	if err := ct.restoreData(ctx); err != nil {
+		return fmt.Errorf("restore_collection: restore data: %w", err)
+	}
+
+	return nil
+}
+
+func (ct *CollectionTask) restoreData(ctx context.Context) error {
+	if ct.task.GetMetaOnly() {
+		ct.logger.Info("skip restore data")
+		return nil
+	}
+
+	// restore collection data
 	if ct.task.UseV2Restore {
 		if err := ct.restoreDataV2(ctx); err != nil {
 			return fmt.Errorf("restore_collection: restore data v2: %w", err)
 		}
 	} else {
 		if err := ct.restoreDataV1(ctx); err != nil {
-			return fmt.Errorf("restore_collection: restore data: %w", err)
+			return fmt.Errorf("restore_collection: restore data v1: %w", err)
 		}
 	}
 
@@ -228,6 +242,7 @@ func (ct *CollectionTask) dropExistedColl(ctx context.Context) error {
 		return nil
 	}
 
+	ct.logger.Info("start drop existed collection")
 	exist, err := ct.grpcCli.HasCollection(ctx, ct.task.GetTargetDbName(), ct.task.GetTargetCollectionName())
 	if err != nil {
 		return fmt.Errorf("restore_collection: failed to check collection exist: %w", err)
@@ -374,6 +389,7 @@ func (ct *CollectionTask) dropExistedIndex(ctx context.Context) error {
 		return nil
 	}
 
+	ct.logger.Info("start drop existed index")
 	indexes, err := ct.grpcCli.ListIndex(ctx, ct.task.GetTargetDbName(), ct.task.GetTargetCollectionName())
 	if err != nil {
 		log.Error("fail in DescribeIndex", zap.Error(err))
@@ -618,7 +634,7 @@ func (ct *CollectionTask) restoreNotL0SegV2(ctx context.Context, part *backuppb.
 	chunkedGroups := lo.Chunk(notL0Groups, _bulkInsertRestfulAPIChunkSize)
 	for _, groups := range chunkedGroups {
 		paths := make([][]string, 0, len(groups))
-		for _, g := range notL0Groups {
+		for _, g := range groups {
 			paths = append(paths, []string{g.insertLogDir, g.deltaLogDir})
 		}
 
@@ -755,6 +771,15 @@ func (ct *CollectionTask) notL0Groups(ctx context.Context, part *backuppb.Partit
 	return groups, nil
 }
 
+// backupTS Only truncate the binlog by timestamp when CDC needs to be connected after restore.
+func (ct *CollectionTask) backupTS() uint64 {
+	if ct.task.GetTruncateBinlogByTs() {
+		return ct.task.GetCollBackup().BackupTimestamp
+	}
+
+	return 0
+}
+
 func (ct *CollectionTask) bulkInsertViaGrpc(ctx context.Context, partition string, paths []string, isL0 bool) error {
 	ct.logger.Info("start bulk insert via grpc", zap.Strings("paths", paths), zap.String("partition", partition))
 	in := client.GrpcBulkInsertInput{
@@ -762,7 +787,7 @@ func (ct *CollectionTask) bulkInsertViaGrpc(ctx context.Context, partition strin
 		CollectionName: ct.task.GetTargetCollectionName(),
 		PartitionName:  partition,
 		Paths:          paths,
-		BackupTS:       ct.task.GetCollBackup().BackupTimestamp,
+		BackupTS:       ct.backupTS(),
 		IsL0:           isL0,
 	}
 	jobID, err := ct.grpcCli.BulkInsert(ctx, in)
@@ -811,7 +836,7 @@ func (ct *CollectionTask) bulkInsertViaRestful(ctx context.Context, partition st
 		CollectionName: ct.task.GetTargetCollectionName(),
 		PartitionName:  partition,
 		Paths:          paths,
-		BackupTS:       ct.task.GetCollBackup().BackupTimestamp,
+		BackupTS:       ct.backupTS(),
 		IsL0:           isL0,
 	}
 	jobID, err := ct.restfulCli.BulkInsert(ctx, in)

@@ -12,7 +12,7 @@ from common import common_type as ct
 from common.common_type import CaseLabel
 from utils.util_log import test_log as log
 from utils.util_common import analyze_documents
-from utils.util_pymilvus import create_index_for_vector_fields
+from utils.util_pymilvus import create_index_for_vector_fields, create_json_path_index_for_json_fields
 from api.milvus_backup import MilvusBackupClient
 from faker import Faker
 
@@ -32,6 +32,7 @@ class TestRestoreBackup(TestcaseBase):
     @pytest.mark.parametrize("collection_need_to_restore", [3])
     @pytest.mark.parametrize("collection_type", ["all"])
     @pytest.mark.parametrize("use_v2_restore", [True, False])
+    @pytest.mark.parametrize("nullable", [True, False])
     @pytest.mark.tags(CaseLabel.L0)
     def test_milvus_restore_back(
         self,
@@ -42,7 +43,9 @@ class TestRestoreBackup(TestcaseBase):
         is_auto_id,
         enable_partition,
         nb,
+        nullable
     ):
+
         # prepare data
         names_origin = []
         back_up_name = cf.gen_unique_str(backup_prefix)
@@ -56,6 +59,7 @@ class TestRestoreBackup(TestcaseBase):
                     auto_id=is_auto_id,
                     check_function=False,
                     enable_partition=enable_partition,
+                    nullable=nullable
                 )
         if collection_type == "float":
             for is_binary in [False, False, False]:
@@ -67,6 +71,7 @@ class TestRestoreBackup(TestcaseBase):
                     auto_id=is_auto_id,
                     check_function=False,
                     enable_partition=enable_partition,
+                    nullable=nullable
                 )
         if collection_type == "binary":
             for is_binary in [True, True, True]:
@@ -134,6 +139,7 @@ class TestRestoreBackup(TestcaseBase):
     @pytest.mark.parametrize("is_async", [True, False])
     @pytest.mark.parametrize("collection_need_to_restore", [3])
     @pytest.mark.parametrize("collection_type", ["all"])
+    @pytest.mark.parametrize("nullable", [True, False])
     @pytest.mark.tags(CaseLabel.L0)
     def test_milvus_restore_back_with_index(
         self,
@@ -143,6 +149,7 @@ class TestRestoreBackup(TestcaseBase):
         is_auto_id,
         enable_partition,
         nb,
+        nullable
     ):
         # prepare data
         names_origin = []
@@ -157,6 +164,7 @@ class TestRestoreBackup(TestcaseBase):
                     auto_id=is_auto_id,
                     check_function=False,
                     enable_partition=enable_partition,
+                    nullable=nullable
                 )
         if collection_type == "float":
             for is_binary in [False, False, False]:
@@ -168,6 +176,7 @@ class TestRestoreBackup(TestcaseBase):
                     auto_id=is_auto_id,
                     check_function=False,
                     enable_partition=enable_partition,
+                    nullable=nullable
                 )
         if collection_type == "binary":
             for is_binary in [True, True, True]:
@@ -185,10 +194,15 @@ class TestRestoreBackup(TestcaseBase):
             res, _ = self.utility_wrap.has_collection(name)
             assert res is True
 
-        # create index for source collection
+        # create index for source collections
         for name in names_origin:
             c = Collection(name)
             create_index_for_vector_fields(c)
+        # # skip for issue 606
+        # # create json path index for json field of source collections
+        # for name in names_origin:
+        #     c = Collection(name)
+        #     create_json_path_index_for_json_fields(c)
 
         # create backup
         names_need_backup = names_origin
@@ -1138,24 +1152,41 @@ class TestRestoreBackup(TestcaseBase):
             cf.gen_int64_field(name="int64", is_primary=True),
             cf.gen_int64_field(name="key"),
             cf.gen_json_field(name="json"),
+            cf.gen_string_field(name="text", enable_match=True, enable_analyzer=True),
             cf.gen_array_field(name="var_array", element_type=DataType.VARCHAR),
             cf.gen_array_field(name="int_array", element_type=DataType.INT64),
             cf.gen_float_vec_field(name="float_vector", dim=128),
+            cf.gen_sparse_vec_field(name="bm25_vector"),
         ]
         default_schema = cf.gen_collection_schema(fields)
+
+        # Add BM25 function
+        bm25_function = Function(
+            name="text_bm25_emb",
+            function_type=FunctionType.BM25,
+            input_field_names=["text"],
+            output_field_names=["bm25_vector"],
+            params={},
+        )
+        default_schema.add_function(bm25_function)
+
         collection_w = self.init_collection_wrap(
             name=name_origin, schema=default_schema, active_trace=True
         )
+
+        create_index_for_vector_fields(collection_w)
         nb = 3000
         data = [
             [i for i in range(nb)],
             [i % 3 for i in range(nb)],
             [{f"key_{str(i)}": i} for i in range(nb)],
+            [fake_en.text() for _ in range(nb)],  # Text data for BM25
             [[str(x) for x in range(10)] for i in range(nb)],
             [[int(x) for x in range(10)] for i in range(nb)],
             [[np.float32(i) for i in range(128)] for _ in range(nb)],
         ]
         res, result = collection_w.insert(data=data)
+        collection_w.flush()
         pk = res.primary_keys
         # delete first 100 rows
         delete_ids = pk[:100]
@@ -1209,29 +1240,47 @@ class TestRestoreBackup(TestcaseBase):
             cf.gen_int64_field(name="int64", is_primary=True),
             cf.gen_int64_field(name="key"),
             cf.gen_json_field(name="json"),
+            cf.gen_string_field(name="text", enable_match=True, enable_analyzer=True),
             cf.gen_array_field(name="var_array", element_type=DataType.VARCHAR),
             cf.gen_array_field(name="int_array", element_type=DataType.INT64),
             cf.gen_float_vec_field(name="float_vector", dim=128),
+            cf.gen_sparse_vec_field(name="bm25_vector"),
         ]
         default_schema = cf.gen_collection_schema(fields)
+
+        # Add BM25 function
+        bm25_function = Function(
+            name="text_bm25_emb",
+            function_type=FunctionType.BM25,
+            input_field_names=["text"],
+            output_field_names=["bm25_vector"],
+            params={},
+        )
+        default_schema.add_function(bm25_function)
+
         collection_w = self.init_collection_wrap(
             name=name_origin, schema=default_schema, active_trace=True
         )
+        # create index for float_vector and bm25_sparse_vector
+        create_index_for_vector_fields(collection_w)
         nb = 3000
         data = [
             [i for i in range(nb)],
             [i % 3 for i in range(nb)],
             [{f"key_{str(i)}": i} for i in range(nb)],
+            [fake_en.text() for _ in range(nb)],  # Text data for BM25
             [[str(x) for x in range(10)] for i in range(nb)],
             [[int(x) for x in range(10)] for i in range(nb)],
             [[np.float32(i) for i in range(128)] for _ in range(nb)],
         ]
         res, result = collection_w.insert(data=data)
+        collection_w.flush()
         # upsert first 100 rows by pk
         upsert_data = [
             [i for i in range(100)],
             [i % 3 for i in range(100, 200)],
             [{f"key_{str(i)}": i} for i in range(100, 200)],
+            [fake_en.text() for _ in range(100)],  # Text data for BM25
             [[str(x) for x in range(10, 20)] for _ in range(100)],
             [[int(x) for x in range(10)] for _ in range(100)],
             [[np.float32(i) for i in range(128, 128 * 2)] for _ in range(100)],
@@ -1286,28 +1335,45 @@ class TestRestoreBackup(TestcaseBase):
             cf.gen_int64_field(name="int64", is_primary=True),
             cf.gen_int64_field(name="key"),
             cf.gen_json_field(name="json"),
+            cf.gen_string_field(name="text", enable_match=True, enable_analyzer=True),
             cf.gen_array_field(name="var_array", element_type=DataType.VARCHAR),
             cf.gen_array_field(name="int_array", element_type=DataType.INT64),
             cf.gen_float_vec_field(name="float_vector", dim=128),
+            cf.gen_sparse_vec_field(name="bm25_sparse_vector"),
         ]
         default_schema = cf.gen_collection_schema(fields)
+
+        # Add BM25 function
+        bm25_function = Function(
+            name="text_bm25_emb",
+            function_type=FunctionType.BM25,
+            input_field_names=["text"],
+            output_field_names=["bm25_sparse_vector"],
+            params={},
+        )
+        default_schema.add_function(bm25_function)
+
         collection_w = self.init_collection_wrap(
             name=name_origin, schema=default_schema, active_trace=True
         )
+        create_index_for_vector_fields(collection_w)
         nb = 3000
         data = [
             [i for i in range(nb)],
             [i % 3 for i in range(nb)],
             [{f"key_{str(i)}": i} for i in range(nb)],
+            [fake_en.text() for _ in range(nb)],  # Text data for BM25
             [[str(x) for x in range(10)] for i in range(nb)],
             [[int(x) for x in range(10)] for i in range(nb)],
             [[np.float32(i) for i in range(128)] for _ in range(nb)],
         ]
         res, result = collection_w.insert(data=data)
+        collection_w.flush()
         data = [
             [i for i in range(nb)],
             [i % 3 for i in range(nb, nb * 2)],
             [{f"key_{str(i)}": i} for i in range(nb, nb * 2)],
+            [fake_en.text() for _ in range(nb, nb * 2)],  # Text data for BM25
             [[str(x) for x in range(10)] for i in range(nb, nb * 2)],
             [[int(x) for x in range(10)] for i in range(nb, nb * 2)],
             [[np.float32(i) for i in range(128)] for _ in range(nb)],
@@ -1352,3 +1418,175 @@ class TestRestoreBackup(TestcaseBase):
             output_fields=output_fields,
             verify_by_query=True,
         )
+
+    @pytest.mark.tags(CaseLabel.MASTER)
+    def test_milvus_restore_back_with_text_embedding(self, tei_endpoint):
+        self._connect()
+        name_origin = cf.gen_unique_str(prefix)
+        back_up_name = cf.gen_unique_str(backup_prefix)
+        dim = 768
+        fields = [
+            cf.gen_int64_field(name="int64", is_primary=True),
+            cf.gen_string_field(name="text"),
+            cf.gen_float_vec_field(name="dense", dim=dim),
+        ]
+        default_schema = cf.gen_collection_schema(fields)
+        text_embedding_function = Function(
+            name="tei",
+            function_type=FunctionType.TEXTEMBEDDING,
+            input_field_names=["text"],
+            output_field_names="dense",
+            params={
+                "provider": "TEI",
+                "endpoint": tei_endpoint,
+            },
+        )
+        default_schema.add_function(text_embedding_function)
+        collection_w = self.init_collection_wrap(
+            name=name_origin, schema=default_schema, active_trace=True
+        )
+        create_index_for_vector_fields(collection_w)
+        nb = 3000
+        data = [
+            {
+                "int64": i,
+                "text": fake_en.text(),
+            } for i in range(nb)
+        ]
+        batch_size = 100
+        for i in range(0, nb, batch_size):
+            collection_w.insert(data=data[i:i+batch_size])
+        collection_w.flush()
+        # delete first 100 rows
+        delete_ids = [i for i in range(100)]
+        collection_w.delete(expr=f"int64 in {delete_ids}")
+        # upsert last 100 rows by pk
+        upsert_data = [
+            {
+                "int64": i,
+                "text": fake_en.text(),
+            } for i in range(nb-100, nb)
+        ]
+        collection_w.upsert(data=upsert_data)
+        res = self.client.create_backup(
+            {
+                "async": False,
+                "backup_name": back_up_name,
+                "collection_names": [name_origin],
+            }
+        )
+        log.info(f"create_backup {res}")
+        res = self.client.list_backup()
+        log.info(f"list_backup {res}")
+        if "data" in res:
+            all_backup = [r["name"] for r in res["data"]]
+        else:
+            all_backup = []
+        assert back_up_name in all_backup
+        backup = self.client.get_backup(back_up_name)
+        assert backup["data"]["name"] == back_up_name
+        backup_collections = [
+            backup["collection_name"] for backup in backup["data"]["collection_backups"]
+        ]
+        assert name_origin in backup_collections
+        res = self.client.restore_backup(
+            {
+                "async": False,
+                "backup_name": back_up_name,
+                "collection_names": [name_origin],
+                "collection_suffix": suffix,
+            }
+        )
+        log.info(f"restore_backup: {res}")
+        res, _ = self.utility_wrap.list_collections()
+        assert name_origin + suffix in res
+        output_fields = None
+        self.compare_collections(
+            name_origin,
+            name_origin + suffix,
+            output_fields=output_fields,
+            verify_by_query=True,
+        )
+
+    @pytest.mark.parametrize("nb", [3000])
+    @pytest.mark.parametrize("is_auto_id", [True])
+    @pytest.mark.parametrize("enable_partition", [False])
+    @pytest.mark.parametrize("is_async", [True, False])
+    @pytest.mark.parametrize("collection_need_to_restore", [3])
+    @pytest.mark.parametrize("use_v2_restore", [True, False])
+    @pytest.mark.parametrize("nullable", [True, False])
+    @pytest.mark.parametrize("is_all_data_type", [True])
+    @pytest.mark.tags(CaseLabel.L1)
+    def test_milvus_restore_back_all_supported_data_type(
+        self,
+        use_v2_restore,
+        collection_need_to_restore,
+        is_async,
+        is_auto_id,
+        enable_partition,
+        nb,
+        nullable,
+        is_all_data_type
+    ):
+
+        # prepare data
+        names_origin = []
+        back_up_name = cf.gen_unique_str(backup_prefix)
+        names_origin.append(cf.gen_unique_str(prefix))
+        self.prepare_data(
+            names_origin[-1],
+            nb=nb,
+            auto_id=is_auto_id,
+            check_function=False,
+            enable_partition=enable_partition,
+            nullable=nullable,
+            is_all_data_type = is_all_data_type
+            )
+        log.info(f"name_origin:{names_origin}, back_up_name: {back_up_name}")
+        for name in names_origin:
+            res, _ = self.utility_wrap.has_collection(name)
+            assert res is True
+        # create backup
+        names_need_backup = names_origin
+        payload = {
+            "async": False,
+            "backup_name": back_up_name,
+            "collection_names": names_need_backup,
+        }
+        res = self.client.create_backup(payload)
+        log.info(f"create backup response: {res}")
+        backup = self.client.get_backup(back_up_name)
+        assert backup["data"]["name"] == back_up_name
+        backup_collections = [
+            backup["collection_name"] for backup in backup["data"]["collection_backups"]
+        ]
+        restore_collections = backup_collections
+        if collection_need_to_restore == "all":
+            payload = {
+                "async": False,
+                "backup_name": back_up_name,
+                "collection_suffix": suffix,
+            }
+        else:
+            restore_collections = names_need_backup[:collection_need_to_restore]
+            payload = {
+                "async": False,
+                "backup_name": back_up_name,
+                "collection_suffix": suffix,
+                "collection_names": restore_collections,
+            }
+        payload["useV2Restore"] = use_v2_restore
+        t0 = time.time()
+        res = self.client.restore_backup(payload)
+        restore_id = res["data"]["id"]
+        log.info(f"restore_backup: {res}")
+        if is_async:
+            res = self.client.wait_restore_complete(restore_id)
+            assert res is True
+        t1 = time.time()
+        log.info(f"restore {restore_collections} cost time: {t1 - t0}")
+        res, _ = self.utility_wrap.list_collections()
+        for name in restore_collections:
+            assert name + suffix in res
+        for name in restore_collections:
+            self.compare_collections(name, name + suffix, verify_by_query=True)
