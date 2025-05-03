@@ -241,18 +241,7 @@ func (t *Task) listDBAndCollection(ctx context.Context) ([]string, []collection,
 	dbCollectionsStr := utils.GetDBCollections(t.request.GetDbCollections())
 	t.logger.Debug("get dbCollections from request", zap.String("dbCollections", dbCollectionsStr))
 
-	// 1. dbCollections
-	if dbCollectionsStr != "" {
-		t.logger.Info("read need backup db and collection from dbCollection", zap.String("dbCollections", dbCollectionsStr))
-		dbNames, collections, err := t.listDBAndCollectionFromDBCollections(ctx, dbCollectionsStr)
-		if err != nil {
-			return nil, nil, fmt.Errorf("backup: list db and collection from dbCollections: %w", err)
-		}
-		t.logger.Info("list db and collection from dbCollections done", zap.Strings("dbNames", dbNames), zap.Any("collections", collections))
-		return dbNames, collections, nil
-	}
-
-	// 2. collectionNames
+	// 1. collectionNames
 	if len(t.request.GetCollectionNames()) > 0 {
 		t.logger.Info("read need backup db and collection from collectionNames", zap.Strings("collectionNames", t.request.GetCollectionNames()))
 		dbNames, collections, err := t.listDBAndCollectionFromCollectionNames(ctx, t.request.GetCollectionNames())
@@ -260,6 +249,17 @@ func (t *Task) listDBAndCollection(ctx context.Context) ([]string, []collection,
 			return nil, nil, fmt.Errorf("backup: list db and collection from collectionNames: %w", err)
 		}
 		t.logger.Info("list db and collection from collectionNames done", zap.Strings("dbNames", dbNames), zap.Any("collections", collections))
+		return dbNames, collections, nil
+	}
+
+	// 2. dbCollections
+	if dbCollectionsStr != "" {
+		t.logger.Info("read need backup db and collection from dbCollection", zap.String("dbCollections", dbCollectionsStr))
+		dbNames, collections, err := t.listDBAndCollectionFromDBCollections(ctx, dbCollectionsStr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("backup: list db and collection from dbCollections: %w", err)
+		}
+		t.logger.Info("list db and collection from dbCollections done", zap.Strings("dbNames", dbNames), zap.Any("collections", collections))
 		return dbNames, collections, nil
 	}
 
